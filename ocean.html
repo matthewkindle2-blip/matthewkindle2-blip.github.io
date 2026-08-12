@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Live Ocean</title>
+<style>
+  :root{
+    --ink:#dceaf2;
+    --ink-dim:#8aa6b6;
+    --accent:#2fe3c7;
+    --glass:rgba(7,18,27,0.52);
+    --line:rgba(255,255,255,0.10);
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; height:100%; overflow:hidden;
+    background: radial-gradient(125% 95% at 50% 40%, #3c332c 0%, #2a221e 34%, #140f0d 72%, #080605 100%);
+  }
+  #stage{ position:fixed; inset:0; display:block; }
+  canvas{ display:block; }
+
+  /* ---- control panel: kept quiet on purpose; the sea is the subject ---- */
+  #panel{
+    position:fixed; top:16px; right:16px; width:236px; z-index:10;
+    background:var(--glass);
+    -webkit-backdrop-filter:blur(16px) saturate(120%);
+    backdrop-filter:blur(16px) saturate(120%);
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:14px 14px 16px;
+    color:var(--ink);
+    font:13px/1.4 ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    box-shadow:0 12px 40px rgba(0,0,0,0.38);
+    user-select:none;
+  }
+  #panel .head{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:12px;
+  }
+  #panel .title{
+    font-size:11px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--ink-dim); font-weight:600;
+  }
+  #toggle{
+    appearance:none; border:1px solid var(--line); background:rgba(255,255,255,0.04);
+    color:var(--ink); width:24px; height:24px; border-radius:8px; cursor:pointer;
+    font-size:12px; line-height:1; display:grid; place-items:center; transition:.18s;
+  }
+  #toggle:hover{ border-color:var(--accent); color:var(--accent); }
+  #body{ overflow:hidden; transition:max-height .28s ease, opacity .2s ease; max-height:520px; }
+  #panel.collapsed #body{ max-height:0; opacity:0; }
+
+  .presets{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:14px; }
+  .preset{
+    flex:1 1 auto; min-width:62px; text-align:center;
+    padding:7px 6px; border-radius:9px; cursor:pointer;
+    border:1px solid var(--line); background:rgba(255,255,255,0.03);
+    color:var(--ink-dim); font-size:12px; transition:.16s;
+  }
+  .preset:hover{ color:var(--ink); border-color:rgba(255,255,255,0.22); }
+  .preset.on{
+    color:#04221d; background:var(--accent); border-color:var(--accent); font-weight:600;
+  }
+
+  .row{ margin:11px 0; }
+  .row .lab{ display:flex; justify-content:space-between; margin-bottom:6px; }
+  .row .lab .v{ color:var(--accent); font-variant-numeric:tabular-nums; }
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; height:3px; border-radius:3px;
+    background:linear-gradient(90deg,var(--accent) 0%,var(--accent) var(--p,40%),rgba(255,255,255,0.14) var(--p,40%));
+    outline:none; cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:14px; height:14px; border-radius:50%;
+    background:#eafffb; border:2px solid var(--accent); box-shadow:0 1px 5px rgba(0,0,0,.4);
+  }
+  input[type=range]::-moz-range-thumb{
+    width:14px; height:14px; border:2px solid var(--accent); border-radius:50%;
+    background:#eafffb; box-shadow:0 1px 5px rgba(0,0,0,.4);
+  }
+  .switch{ display:flex; align-items:center; justify-content:space-between; margin-top:14px;
+    padding-top:12px; border-top:1px solid var(--line); }
+  .switch label{ color:var(--ink-dim); }
+  .sw{ position:relative; width:38px; height:21px; }
+  .sw input{ display:none; }
+  .sw .track{ position:absolute; inset:0; border-radius:21px; background:rgba(255,255,255,0.12);
+    transition:.2s; cursor:pointer; }
+  .sw .track::after{ content:""; position:absolute; top:2px; left:2px; width:17px; height:17px;
+    border-radius:50%; background:#fff; transition:.2s; }
+  .sw input:checked + .track{ background:var(--accent); }
+  .sw input:checked + .track::after{ transform:translateX(17px); }
+
+  #hint{
+    position:fixed; left:16px; bottom:14px; z-index:9;
+    color:rgba(255,255,255,0.62); font:12px ui-sans-serif,-apple-system,"Segoe UI",sans-serif;
+    letter-spacing:.02em; text-shadow:0 1px 3px rgba(0,0,0,.5); pointer-events:none;
+  }
+  @media (max-width:520px){
+    #panel{ width:auto; left:12px; right:12px; top:12px; }
+  }
+</style>
+</head>
+<body>
+  <canvas id="stage"></canvas>
+
+  <div id="panel">
+    <div class="head">
+      <span class="title">Ocean</span>
+      <button id="toggle" title="Collapse">▾</button>
+    </div>
+    <div id="body">
+      <div class="presets" id="presets"></div>
+      <div id="sliders"></div>
+      <div class="switch">
+        <label for="orbit">Drift the camera</label>
+        <span class="sw"><input type="checkbox" id="orbit" checked><span class="track"></span></span>
+      </div>
+    </div>
+  </div>
+
+  <div id="hint">Tap the water to splash · drag to look · scroll to zoom</div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+  (function () {
+    "use strict";
+
+    // ------------------------------------------------------------------
+    //  Shared GLSL building blocks
+    // ------------------------------------------------------------------
+    const NOISE = `
+      float hash21(vec2 p){
+        p = fract(p*vec2(123.34,345.45));
+        p += dot(p, p+34.345);
+        return fract(p.x*p.y);
+      }
+      float vnoise(vec2 p){
+        vec2 i = floor(p), f = fract(p);
+        vec2 u = f*f*(3.0-2.0*f);
+        float a = hash21(i);
+        float b = hash21(i+vec2(1.0,0.0));
+        float c = hash21(i+vec2(0.0,1.0));
+        float d = hash21(i+vec2(1.0,1.0));
+        return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
+      }
+      float fbm(vec2 p){
+        float v = 0.0, a = 0.5;
+        mat2 m = mat2(1.6,1.2,-1.2,1.6);
+        for(int i=0;i<5;i++){ v += a*vnoise(p); p = m*p; a *= 0.5; }
+        return v;
+      }
+      vec3 aces(vec3 x){
+        return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0);
+      }
+    `;
+
+    // dark, warm studio environment — used only for water reflections + sun glints
+    const ENV = `
+      uniform vec3  uSunDir;
+      uniform vec3  uSunColor;
+      uniform vec3  uSkyZenith;    // near-black overhead
+      uniform vec3  uSkyHorizon;   // dim warm grey at grazing angles
+      uniform float uTime;
+
+      vec3 envColor(vec3 dir){
+        dir = normalize(dir);
+        float h = clamp(dir.y, 0.0, 1.0);
+        vec3 col = mix(uSkyHorizon, uSkyZenith, pow(h, 0.5));
+        float sd = max(dot(dir, uSunDir), 0.0);
+        col += uSunColor * (pow(sd, 6.0)*0.22 + pow(sd, 60.0)*0.55 + pow(sd, 400.0)*2.2);
+        return col;
+      }
+    `;
+
+    // ------------------------------------------------------------------
+    //  Water shaders (Gerstner waves)
+    // ------------------------------------------------------------------
+    const WATER_VS = `
+      uniform float uTime;
+      uniform float uWaveHeight;
+      uniform float uChoppiness;
+      uniform float uWindAngle;
+      uniform float uWaveScale;
+      uniform vec4  uImpacts[8];   // xz = origin, z = start time, w = strength
+
+      varying vec3  vWorldPos;
+      varying vec3  vNormal;
+      varying float vCrest;
+      varying float vHeight;
+      varying vec2  vUv;
+
+      void main(){
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vec2 p  = wp.xz;
+
+        float offs[6]; offs[0]=-0.90; offs[1]=-0.45; offs[2]=-0.12; offs[3]=0.18; offs[4]=0.52; offs[5]=0.95;
+        float wl[6];   wl[0]=220.0;  wl[1]=150.0;   wl[2]=95.0;    wl[3]=60.0;  wl[4]=38.0;   wl[5]=28.0;
+        float amp[6];  amp[0]=3.2;   amp[1]=2.1;    amp[2]=1.3;    amp[3]=0.8;  amp[4]=0.5;   amp[5]=0.32;
+        float stp[6];  stp[0]=0.95;  stp[1]=0.90;   stp[2]=0.80;   stp[3]=0.70; stp[4]=0.60;  stp[5]=0.50;
+
+        vec3  disp = vec3(0.0);
+        float nx = 0.0, nz = 0.0, ny = 1.0, crest = 0.0;
+
+        for (int i = 0; i < 6; i++){
+          float ang = uWindAngle + offs[i];
+          vec2  d   = vec2(cos(ang), sin(ang));
+          float L   = wl[i] * uWaveScale;
+          float k   = 6.2831853 / L;
+          float A   = amp[i] * uWaveHeight;
+          float Q   = min(stp[i] * uChoppiness, 0.95);
+          float w   = sqrt(9.81 * k);
+          float ph  = k * dot(d, p) - w * uTime;
+          float s   = sin(ph), c = cos(ph);
+
+          disp.x += Q * A * d.x * c;
+          disp.z += Q * A * d.y * c;
+          disp.y += A * s;
+
+          float WA = k * A;
+          nx    += -d.x * WA * c;
+          nz    += -d.y * WA * c;
+          ny    += -Q * WA * s;
+          crest +=  Q * WA * max(s, 0.0);
+        }
+
+        // --- interactive splashes: crater + central jet + expanding ripples ---
+        for (int i = 0; i < 8; i++){
+          vec4  im  = uImpacts[i];
+          float str = im.w;
+          float age = uTime - im.z;
+          if (str <= 0.0 || age <= 0.0) continue;
+
+          vec2  rel = p - im.xy;
+          float d   = length(rel) + 1e-4;
+
+          // crater: Laplacian-of-Gaussian gives a dip with a raised rim
+          float rc = 13.0;
+          float u  = (d*d)/(rc*rc);
+          float eu = exp(-u);
+          float craterT = (age/0.14) * exp(1.0 - age/0.14);          // pulse, peaks ~0.14s
+          float shape   = (u - 1.0) * eu;                            // <0 centre, >0 rim
+          float Hc  = 6.5 * str * craterT * shape;
+          float dHc = 6.5 * str * craterT * (eu*(2.0 - u)) * (2.0*d/(rc*rc));
+
+          // Worthington jet: thin column rebounding upward, slightly delayed
+          float rj = 7.0;
+          float ej = exp(-(d*d)/(rj*rj));
+          float jetT = (age/0.34) * exp(1.0 - age/0.34) * smoothstep(0.08, 0.22, age);
+          float Hj  = 8.5 * str * jetT * ej;
+          float dHj = 8.5 * str * jetT * ej * (-2.0*d/(rj*rj));
+
+          // ripple train: rings inside an expanding front, dispersing and damping
+          float c = 26.0, cIn = 9.0, k = 0.45, omega = 11.7, tau = 1.6;
+          float front = c * age;
+          float rIn   = cIn * age;
+          float win   = smoothstep(rIn, rIn + 3.0, d) * (1.0 - smoothstep(front - 3.0, front, d));
+          float amp   = 2.3 * str * exp(-age/tau) * (1.0/sqrt(1.0 + d/25.0)) * win;
+          float ph    = k*d - omega*age;
+          float Hr  = amp * sin(ph);
+          float dHr = amp * k * cos(ph);                             // carrier-dominant
+
+          disp.y += Hc + Hj + Hr;
+          vec2 g  = ((dHc + dHj + dHr) / d) * rel;                   // radial slope -> xz
+          nx -= g.x;
+          nz -= g.y;
+        }
+
+        wp.x += disp.x;  wp.y += disp.y;  wp.z += disp.z;
+
+        vWorldPos = wp.xyz;
+        vNormal   = normalize(vec3(nx, ny, nz));
+        vCrest    = crest;
+        vHeight   = disp.y;
+        vUv       = uv;
+
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `;
+
+    const WATER_FS = `
+      varying vec3  vWorldPos;
+      varying vec3  vNormal;
+      varying float vCrest;
+      varying float vHeight;
+      varying vec2  vUv;
+
+      uniform vec3  uDeepColor;
+      uniform vec3  uSurfaceColor;
+      uniform vec3  uScatterColor;
+      uniform float uFoam;
+      uniform vec4  uImpacts[8];
+
+      // marbled foam veins via domain-warped fbm
+      float foamVeins(vec2 p){
+        vec2 w = vec2(fbm(p*0.05), fbm(p*0.05 + 7.3));
+        return fbm(p*0.16 + w*2.5);
+      }
+
+      void main(){
+        vec3  V = normalize(cameraPosition - vWorldPos);
+        vec2  P = vWorldPos.xz;
+
+        // two octaves of micro-ripples drifting differently -> fine sun sparkle
+        float s1 = 0.32;
+        vec2  q1 = P*s1 + vec2(uTime*0.06, -uTime*0.05);
+        float e1 = 0.6*s1;
+        float a1 = fbm(q1);
+        float n1x = fbm(q1+vec2(e1,0.0)) - a1;
+        float n1z = fbm(q1+vec2(0.0,e1)) - a1;
+        float s2 = 0.95;
+        vec2  q2 = P*s2 + vec2(-uTime*0.13, uTime*0.10);
+        float e2 = 0.6*s2;
+        float a2 = fbm(q2);
+        float n2x = fbm(q2+vec2(e2,0.0)) - a2;
+        float n2z = fbm(q2+vec2(0.0,e2)) - a2;
+        vec3  N = normalize(vNormal + vec3(-(n1x*5.0 + n2x*2.0), 0.0, -(n1z*5.0 + n2z*2.0)));
+
+        // Fresnel (Schlick)
+        float fres = pow(clamp(1.0 - max(dot(N,V),0.0), 0.0, 1.0), 5.0);
+        fres = mix(0.02, 1.0, fres);
+
+        // reflection of the dark warm environment
+        vec3 R = reflect(-V, N);
+        R.y = max(R.y, 0.0);
+        vec3 refl = envColor(R);
+
+        // ---- water body: deep teal, lifting toward a lighter teal on crests ----
+        vec3 body = uDeepColor;
+        float lift = clamp(vCrest*0.45 + max(vHeight,0.0)*0.05, 0.0, 1.0);
+        body = mix(body, uSurfaceColor, lift*0.7);
+
+        // subsurface: sun transmitting green through raised/steep crests toward the eye
+        float trans = pow(clamp(dot(-V, uSunDir), 0.0, 1.0), 2.0);
+        trans *= clamp(max(vHeight,0.0)*0.10 + vCrest*0.5, 0.0, 1.0);
+        body += uScatterColor * trans * 1.4;
+
+        vec3 col = mix(body, refl, fres);
+
+        // ---- warm sun glints, fragmented by the micro-ripples ----
+        vec3  H  = normalize(V + uSunDir);
+        float nh = clamp(dot(N,H), 0.0, 1.0);
+        col += uSunColor * pow(nh, 800.0) * 6.0;
+        col += uSunColor * pow(nh, 80.0)  * 0.5;
+
+        // ---- foam: steepness-driven, broken into marbled streaks ----
+        float veins  = foamVeins(P);
+        float fine   = fbm(P*0.7 + vec2(uTime*0.05));
+        float crestF = vCrest * uFoam;
+        float foam = smoothstep(0.30, 0.85, crestF*1.4 * (0.55 + veins) - 0.10);
+        foam *= smoothstep(0.25, 0.78, 0.5 + (veins-0.5)*1.3 + (fine-0.5)*0.5);
+        foam = max(foam, smoothstep(0.64, 0.92, veins) * 0.35 * smoothstep(0.0,0.4,uFoam));
+
+        // splash whitewater: burst at impact + expanding ring
+        for (int i = 0; i < 8; i++){
+          vec4  im  = uImpacts[i];
+          float str = im.w;
+          float age = uTime - im.z;
+          if (str <= 0.0 || age <= 0.0) continue;
+          float dd  = length(P - im.xy);
+          float core = exp(-age*3.2) * (1.0 - smoothstep(0.0, 20.0, dd));
+          float rr   = (dd - 26.0*age) / 5.0;
+          float ring = exp(-age/0.9) * exp(-rr*rr);
+          foam += str * (core*1.3 + ring*0.9);
+        }
+        foam = clamp(foam, 0.0, 1.0);
+
+        vec3 foamCol = vec3(0.90, 0.94, 0.96) * (0.8 + 0.2*clamp(N.y,0.0,1.0));
+        col = mix(col, foamCol, foam);
+
+        // soft edge so the finite tile melts into the dark backdrop
+        vec2  ec = abs(vUv - 0.5);
+        float edge = smoothstep(0.46, 0.5, max(ec.x, ec.y));
+        col *= (1.0 - edge*0.7);
+
+        col = aces(col * 1.1);
+        col = pow(col, vec3(1.0/2.2));
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `;
+
+    // ------------------------------------------------------------------
+    //  Renderer / scene / camera
+    // ------------------------------------------------------------------
+    const canvas = document.getElementById("stage");
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x000000, 0);   // transparent → CSS backdrop shows through
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(55, window.innerWidth/window.innerHeight, 1, 12000);
+
+    // shared uniforms (one set, referenced by both materials so edits affect both)
+    const U = {
+      uTime:        { value: 0 },
+      uSunDir:      { value: new THREE.Vector3(0,0.4,1).normalize() },
+      uSunColor:    { value: new THREE.Color(1.0,0.95,0.85) },
+      uSkyZenith:   { value: new THREE.Color(0.18,0.42,0.78) },
+      uSkyHorizon:  { value: new THREE.Color(0.62,0.80,0.92) },
+      uCloudColor:  { value: new THREE.Color(1,1,1) },
+      uCloud:       { value: 0.45 },
+    };
+
+    // --- water ---
+    const waterUniforms = Object.assign({
+      uWaveHeight:  { value: 0.7 },
+      uChoppiness:  { value: 0.95 },
+      uWindAngle:   { value: 0.6 },
+      uWaveScale:   { value: 0.65 },
+      uDeepColor:   { value: new THREE.Color(0.004,0.022,0.030) },
+      uSurfaceColor:{ value: new THREE.Color(0.02,0.16,0.16) },
+      uScatterColor:{ value: new THREE.Color(0.02,0.22,0.16) },
+      uFoam:        { value: 1.3 },
+      uImpacts:     { value: Array.from({length:8}, () => new THREE.Vector4(0,0,-1000,0)) },
+    }, U);
+
+    const waterMat = new THREE.ShaderMaterial({
+      uniforms: waterUniforms,
+      vertexShader:   WATER_VS,
+      fragmentShader: NOISE + ENV + WATER_FS,
+      side: THREE.FrontSide,
+    });
+
+    // a finite ocean tile (rotated by the camera into a diamond), on a dark backdrop
+    const waterGeo = new THREE.PlaneGeometry(820, 820, 480, 480);
+    const water = new THREE.Mesh(waterGeo, waterMat);
+    water.rotation.x = -Math.PI/2;
+    water.frustumCulled = false;
+    scene.add(water);
+
+    // (no sky dome — the sea floats as an isolated tile, matching the reference)
+
+    // ------------------------------------------------------------------
+    //  Splash spray — GPU ballistic droplets (crown + jet + mist)
+    // ------------------------------------------------------------------
+    let simTime = 0;            // current sim clock, shared with spawn calls
+    const MAXP = 2600;          // droplet pool
+    const PER  = 180;           // droplets per splash
+    let pCursor = 0, impactCursor = 0;
+
+    const PARTICLE_VS = `
+      attribute vec3  aVel;
+      attribute float aT0;
+      attribute float aSeed;
+      attribute float aSize;
+      uniform float uTime;
+      uniform float uG;
+      uniform float uPx;
+      varying float vA;
+      varying float vSeed;
+      void main(){
+        float age = uTime - aT0;
+        vec3 pos = position + aVel*age + vec3(0.0, -0.5*uG*age*age, 0.0);
+        float alive = step(0.0, age) * (1.0 - step(1.9, age));
+        alive *= (1.0 - step(0.12, age) * step(pos.y, 0.0));   // die when it falls back in
+        vec4 mv = modelViewMatrix * vec4(pos, 1.0);
+        gl_Position = projectionMatrix * mv;
+        float sz = aSize * (1.0 + aSeed*0.5);
+        gl_PointSize = alive * clamp(sz * 1000.0 * uPx / max(-mv.z, 1.0), 0.0, 42.0*uPx);
+        vA = alive * smoothstep(0.0, 0.05, age) * (1.0 - smoothstep(1.1, 1.9, age));
+        vSeed = aSeed;
+      }
+    `;
+    const PARTICLE_FS = `
+      varying float vA;
+      varying float vSeed;
+      uniform vec3 uTint;
+      void main(){
+        vec2 c = gl_PointCoord - 0.5;
+        float r = length(c);
+        if (r > 0.5) discard;
+        float a = smoothstep(0.5, 0.16, r);
+        vec3 col = mix(uTint, vec3(1.0), 0.55 + vSeed*0.3);
+        gl_FragColor = vec4(col, a * vA * 0.95);
+      }
+    `;
+
+    const pGeo  = new THREE.BufferGeometry();
+    const pPos  = new Float32Array(MAXP*3);
+    const pVel  = new Float32Array(MAXP*3);
+    const pT0   = new Float32Array(MAXP).fill(-1000);
+    const pSeed = new Float32Array(MAXP);
+    const pSize = new Float32Array(MAXP);
+    pGeo.setAttribute("position", new THREE.BufferAttribute(pPos, 3));
+    pGeo.setAttribute("aVel",     new THREE.BufferAttribute(pVel, 3));
+    pGeo.setAttribute("aT0",      new THREE.BufferAttribute(pT0, 1));
+    pGeo.setAttribute("aSeed",    new THREE.BufferAttribute(pSeed, 1));
+    pGeo.setAttribute("aSize",    new THREE.BufferAttribute(pSize, 1));
+
+    const particleMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: U.uTime,
+        uG:    { value: 28.0 },
+        uPx:   { value: renderer.getPixelRatio() },
+        uTint: { value: new THREE.Color(0.82, 0.95, 1.0) },
+      },
+      vertexShader: PARTICLE_VS,
+      fragmentShader: PARTICLE_FS,
+      transparent: true, depthWrite: false, depthTest: true,
+      blending: THREE.NormalBlending,
+    });
+    const points = new THREE.Points(pGeo, particleMat);
+    points.frustumCulled = false;
+    scene.add(points);
+
+    function emit(P, t0){
+      const g = pGeo.attributes;
+      for (let n = 0; n < PER; n++){
+        const idx = pCursor % MAXP; pCursor++;
+        const o = idx*3;
+        pPos[o] = P.x; pPos[o+1] = 0.3; pPos[o+2] = P.z;
+        let vx, vy, vz, size;
+        const a = Math.random()*Math.PI*2;
+        if (n < PER*0.18){                       // jet column — straight up, fastest
+          const s = Math.random()*3.0;
+          vx = Math.cos(a)*s; vz = Math.sin(a)*s;
+          vy = 30 + Math.random()*18;
+          size = 1.3 + Math.random()*0.5;
+        } else if (n < PER*0.62){                // crown — arcs outward
+          const out = 9 + Math.random()*14;
+          vx = Math.cos(a)*out; vz = Math.sin(a)*out;
+          vy = 12 + Math.random()*14;
+          size = 1.0 + Math.random()*0.5;
+        } else {                                 // mist — wide, fine, short-lived
+          const out = 4 + Math.random()*20;
+          vx = Math.cos(a)*out; vz = Math.sin(a)*out;
+          vy = 8 + Math.random()*22;
+          size = 0.45 + Math.random()*0.4;
+        }
+        pVel[o] = vx; pVel[o+1] = vy; pVel[o+2] = vz;
+        pT0[idx]   = t0 + Math.random()*0.03;
+        pSeed[idx] = Math.random();
+        pSize[idx] = size;
+      }
+      g.position.needsUpdate = true;
+      g.aVel.needsUpdate = true;
+      g.aT0.needsUpdate = true;
+      g.aSeed.needsUpdate = true;
+      g.aSize.needsUpdate = true;
+    }
+
+    function spawnSplash(P){
+      const t0 = simTime;
+      const i = impactCursor % 8; impactCursor++;
+      waterUniforms.uImpacts.value[i].set(P.x, P.z, t0, 1.0);   // surface crater/jet/ripples
+      emit(P, t0);                                              // airborne spray
+    }
+
+    // tap -> world point on the sea, via ray/plane intersection
+    const raycaster  = new THREE.Raycaster();
+    const splashPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const hitPt = new THREE.Vector3();
+    function tryTap(cx, cy){
+      const rect = canvas.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((cx - rect.left)/rect.width)*2 - 1,
+        -((cy - rect.top)/rect.height)*2 + 1
+      );
+      raycaster.setFromCamera(ndc, camera);
+      if (raycaster.ray.intersectPlane(splashPlane, hitPt)){
+        if (isFinite(hitPt.x) && Math.hypot(hitPt.x, hitPt.z) < 1100) spawnSplash(hitPt);
+      }
+    }
+
+
+    // ------------------------------------------------------------------
+    //  Sun helper + presets
+    // ------------------------------------------------------------------
+    let sunAz = 35 * Math.PI/180;     // fixed azimuth, elevation drives the look
+    function setSun(elevDeg){
+      const el = elevDeg * Math.PI/180;
+      U.uSunDir.value.set(
+        Math.cos(el)*Math.sin(sunAz),
+        Math.sin(el),
+        Math.cos(el)*Math.cos(sunAz)
+      ).normalize();
+    }
+
+    const PRESETS = {
+      "Deep Sea": {
+        waveHeight:0.7, choppiness:0.95, foam:1.3, wind:34, sun:16, scale:0.65,
+        sunColor:[1.0,0.72,0.40],
+        envLow:[0.07,0.065,0.06], envHigh:[0.015,0.02,0.025],
+        deep:[0.004,0.022,0.030], surface:[0.02,0.16,0.16], scatter:[0.02,0.22,0.16],
+      },
+      Calm: {
+        waveHeight:0.4, choppiness:0.5, foam:0.55, wind:30, sun:22, scale:0.75,
+        sunColor:[1.0,0.82,0.55],
+        envLow:[0.085,0.085,0.085], envHigh:[0.02,0.025,0.03],
+        deep:[0.006,0.028,0.038], surface:[0.03,0.20,0.20], scatter:[0.03,0.26,0.20],
+      },
+      Choppy: {
+        waveHeight:0.95, choppiness:1.1, foam:1.6, wind:48, sun:14, scale:0.6,
+        sunColor:[1.0,0.70,0.38],
+        envLow:[0.07,0.065,0.06], envHigh:[0.013,0.018,0.024],
+        deep:[0.004,0.020,0.028], surface:[0.02,0.15,0.15], scatter:[0.02,0.20,0.15],
+      },
+      Storm: {
+        waveHeight:1.5, choppiness:1.25, foam:2.0, wind:60, sun:9, scale:0.55,
+        sunColor:[0.82,0.80,0.80],
+        envLow:[0.05,0.055,0.062], envHigh:[0.015,0.02,0.028],
+        deep:[0.003,0.014,0.020], surface:[0.02,0.10,0.12], scatter:[0.02,0.14,0.13],
+      },
+      Golden: {
+        waveHeight:0.7, choppiness:0.9, foam:1.2, wind:34, sun:6, scale:0.65,
+        sunColor:[1.0,0.55,0.22],
+        envLow:[0.13,0.085,0.05], envHigh:[0.02,0.02,0.025],
+        deep:[0.006,0.022,0.026], surface:[0.05,0.16,0.14], scatter:[0.06,0.20,0.12],
+      },
+    };
+
+    function applyPreset(name){
+      const p = PRESETS[name];
+      waterUniforms.uWaveHeight.value = p.waveHeight;
+      waterUniforms.uChoppiness.value = p.choppiness;
+      waterUniforms.uFoam.value       = p.foam;
+      waterUniforms.uWindAngle.value  = p.wind * Math.PI/180;
+      waterUniforms.uWaveScale.value  = p.scale;
+      waterUniforms.uDeepColor.value.setRGB(p.deep[0], p.deep[1], p.deep[2]);
+      waterUniforms.uSurfaceColor.value.setRGB(p.surface[0], p.surface[1], p.surface[2]);
+      waterUniforms.uScatterColor.value.setRGB(p.scatter[0], p.scatter[1], p.scatter[2]);
+      U.uSunColor.value.setRGB(p.sunColor[0], p.sunColor[1], p.sunColor[2]);
+      U.uSkyHorizon.value.setRGB(p.envLow[0], p.envLow[1], p.envLow[2]);
+      U.uSkyZenith.value.setRGB(p.envHigh[0], p.envHigh[1], p.envHigh[2]);
+      setSun(p.sun);
+      syncSliders(p);
+      document.querySelectorAll(".preset").forEach(b =>
+        b.classList.toggle("on", b.dataset.name === name));
+    }
+
+    // ------------------------------------------------------------------
+    //  UI
+    // ------------------------------------------------------------------
+    const presetsEl = document.getElementById("presets");
+    Object.keys(PRESETS).forEach(name => {
+      const b = document.createElement("div");
+      b.className = "preset"; b.textContent = name; b.dataset.name = name;
+      b.onclick = () => applyPreset(name);
+      presetsEl.appendChild(b);
+    });
+
+    const SLIDERS = [
+      { key:"wave", label:"Wave height", min:0.1, max:2.5, step:0.01,
+        get:()=>waterUniforms.uWaveHeight.value, set:v=>waterUniforms.uWaveHeight.value=v,
+        fmt:v=>v.toFixed(2) },
+      { key:"chop", label:"Choppiness", min:0, max:1.4, step:0.01,
+        get:()=>waterUniforms.uChoppiness.value, set:v=>waterUniforms.uChoppiness.value=v,
+        fmt:v=>v.toFixed(2) },
+      { key:"wind", label:"Wind", min:0, max:360, step:1,
+        get:()=>waterUniforms.uWindAngle.value*180/Math.PI, set:v=>waterUniforms.uWindAngle.value=v*Math.PI/180,
+        fmt:v=>Math.round(v)+"\u00B0" },
+      { key:"sun", label:"Sun height", min:2, max:80, step:1,
+        get:()=>Math.round(Math.asin(U.uSunDir.value.y)*180/Math.PI), set:v=>setSun(v),
+        fmt:v=>Math.round(v)+"\u00B0" },
+      { key:"foam", label:"Foam", min:0, max:2, step:0.01,
+        get:()=>waterUniforms.uFoam.value, set:v=>waterUniforms.uFoam.value=v,
+        fmt:v=>v.toFixed(2) },
+    ];
+
+    const slidersEl = document.getElementById("sliders");
+    const inputs = {};
+    SLIDERS.forEach(s => {
+      const row = document.createElement("div"); row.className = "row";
+      row.innerHTML =
+        '<div class="lab"><span>'+s.label+'</span><span class="v" id="v_'+s.key+'"></span></div>';
+      const inp = document.createElement("input");
+      inp.type = "range"; inp.min = s.min; inp.max = s.max; inp.step = s.step;
+      inp.oninput = () => { s.set(parseFloat(inp.value)); refreshRow(s, inp); };
+      row.appendChild(inp);
+      slidersEl.appendChild(row);
+      inputs[s.key] = inp;
+    });
+
+    function refreshRow(s, inp){
+      const val = parseFloat(inp.value);
+      document.getElementById("v_"+s.key).textContent = s.fmt(val);
+      const pct = ((val - s.min) / (s.max - s.min)) * 100;
+      inp.style.setProperty("--p", pct + "%");
+    }
+    function syncSliders(){
+      SLIDERS.forEach(s => {
+        const inp = inputs[s.key];
+        inp.value = s.get();
+        refreshRow(s, inp);
+      });
+    }
+
+    // collapse + orbit toggle
+    const panel = document.getElementById("panel");
+    document.getElementById("toggle").onclick = function(){
+      panel.classList.toggle("collapsed");
+      this.textContent = panel.classList.contains("collapsed") ? "\u25B8" : "\u25BE";
+    };
+    let autoOrbit = true;
+    document.getElementById("orbit").onchange = e => autoOrbit = e.target.checked;
+
+    // ------------------------------------------------------------------
+    //  Orbit-style camera controls
+    // ------------------------------------------------------------------
+    const target = new THREE.Vector3(0, 0, 0);
+    let theta = Math.PI/4, phi = 1.02, radius = 1120;
+
+    function placeCamera(){
+      const sp = Math.sin(phi), cp = Math.cos(phi);
+      camera.position.set(
+        target.x + radius*sp*Math.sin(theta),
+        target.y + radius*cp,
+        target.z + radius*sp*Math.cos(theta)
+      );
+      camera.lookAt(target);
+    }
+
+    let dragging = false, lx = 0, ly = 0, downX = 0, downY = 0, downT = 0, moved = 0;
+    canvas.addEventListener("pointerdown", e => {
+      dragging = true; lx = downX = e.clientX; ly = downY = e.clientY;
+      downT = performance.now(); moved = 0;
+      canvas.setPointerCapture(e.pointerId);
+    });
+    canvas.addEventListener("pointerup", e => {
+      dragging = false;
+      if (moved < 6 && performance.now() - downT < 400) tryTap(e.clientX, e.clientY);
+    });
+    canvas.addEventListener("pointermove", e => {
+      if (!dragging) return;
+      theta -= (e.clientX - lx) * 0.005;
+      phi   -= (e.clientY - ly) * 0.005;
+      phi = Math.max(0.30, Math.min(1.45, phi));
+      lx = e.clientX; ly = e.clientY;
+      moved = Math.max(moved, Math.hypot(e.clientX - downX, e.clientY - downY));
+    });
+    canvas.addEventListener("wheel", e => {
+      e.preventDefault();
+      radius *= (1 + Math.sign(e.deltaY) * 0.08);
+      radius = Math.max(350, Math.min(1800, radius));
+    }, { passive:false });
+
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      particleMat.uniforms.uPx.value = renderer.getPixelRatio();
+    });
+
+    // ------------------------------------------------------------------
+    //  Boot + loop
+    // ------------------------------------------------------------------
+    applyPreset("Deep Sea");
+
+    const clock = new THREE.Clock();
+    function frame(){
+      simTime = clock.getElapsedTime();
+      U.uTime.value = simTime;
+      if (autoOrbit && !dragging) theta += 0.00045;
+      placeCamera();
+      renderer.render(scene, camera);
+      requestAnimationFrame(frame);
+    }
+    frame();
+
+    // a first splash so the effect is visible right away
+    setTimeout(() => spawnSplash(new THREE.Vector3(10, 0, -8)), 900);
+  })();
+  </script>
+</body>
+</html>

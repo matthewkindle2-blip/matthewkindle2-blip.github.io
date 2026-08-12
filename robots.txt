@@ -1,0 +1,7 @@
+User-Agent: *
+Allow: /
+Disallow: /api/
+Disallow: /account
+Disallow: /login
+
+Sitemap: https://aethara.us/sitemap.xml

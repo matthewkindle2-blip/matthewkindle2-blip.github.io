@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-label="Aethara  Don't just change jobs. Change your coordinates.">
+  <rect width="1200" height="630" fill="#06142e"/>
+  <g transform="translate(600 168) scale(2.4) translate(-36 -36)">
+    <path fill="#5b7495" d="M14 64 L26 64 L34 12 L22 12 Z"/>
+    <path fill="#5b7495" d="M38 12 L50 12 L52 28 L40 28 Z"/>
+    <path fill="#5b7495" d="M42 36 L54 36 L62 64 L50 64 Z"/>
+    <path fill="#e6b84a" d="M18 66 L24 68 L54 18 L66 6 L58 20 L52 18 Z"/>
+  </g>
+  <text x="600" y="360" text-anchor="middle" fill="#ffffff" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="72" font-weight="700" letter-spacing="0.14em">AETHARA</text>
+  <text x="600" y="430" text-anchor="middle" fill="#b8c4d8" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="34" font-weight="400">Don&apos;t just change jobs. Change your coordinates.</text>
+</svg>
